@@ -1,0 +1,31 @@
+# OS
+.DS_Store
+*.swp
+*.swo
+*.swl
+*.swm
+*.swn
+.vscode
+.idea
+.envrc
+
+# Build
+build
+dist
+
+# Testing
+/coverage.*.txt
+/data
+__pycache__
+*.pyc
+coverage.txt
+
+# Others
+frontend/node_modules
+frontend/dist
+frontend/.cache
+
+# Pystarport
+/bot.yaml
+/bot.*.yaml
+/config.yaml
