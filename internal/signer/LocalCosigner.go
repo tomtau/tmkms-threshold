@@ -55,6 +55,7 @@ type HRSMeta struct {
 	state            *state.State
 	output           *sign.Output
 	currentSignBytes []byte
+	expirationTime   time.Time
 }
 
 // LocalCosigner responds to sign requests using their share key
@@ -140,9 +141,14 @@ func (cosigner *LocalCosigner) StartSession(req CosignerStartSessionRequest) (Co
 		Round:  round,
 		Step:   step,
 	}
-	_, ok := cosigner.sessions[hrsKey]
-	if ok {
+	msession, ok := cosigner.sessions[hrsKey]
+	if ok && !msession.state.IsFinished() && msession.expirationTime.Unix() > time.Now().Unix() {
 		return res, errors.New("already being signed on")
+	}
+	if ok {
+		if _, almostsame := CheckOnlyDifferByTimestamp(step, msession.currentSignBytes, req.SignBytes); !almostsame {
+			return res, errors.New("mismatched data")
+		}
 	}
 
 	partySet, err := getPartySet(req.PartyIDs)
@@ -158,6 +164,7 @@ func (cosigner *LocalCosigner) StartSession(req CosignerStartSessionRequest) (Co
 		state:            state,
 		output:           output,
 		currentSignBytes: req.SignBytes,
+		expirationTime:   time.Now().Add(cosigner.timeout),
 	}
 	msgs1, err := helpers.PartyRoutine(nil, state)
 	if err != nil {

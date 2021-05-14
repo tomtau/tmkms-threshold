@@ -146,10 +146,14 @@ func LoadOrCreateSignState(filepath string) (SignState, error) {
 // OnlyDifferByTimestamp returns true if the sign bytes of the sign state
 // are the same as the new sign bytes excluding the timestamp.
 func (signState *SignState) OnlyDifferByTimestamp(signBytes []byte) (time.Time, bool) {
-	if signState.Step == stepPropose {
-		return checkProposalOnlyDifferByTimestamp(signState.SignBytes, signBytes)
-	} else if signState.Step == stepPrevote || signState.Step == stepPrecommit {
-		return checkVoteOnlyDifferByTimestamp(signState.SignBytes, signBytes)
+	return CheckOnlyDifferByTimestamp(signState.Step, signState.SignBytes, signBytes)
+}
+
+func CheckOnlyDifferByTimestamp(step int8, lastSignBytes []byte, newSignBytes []byte) (time.Time, bool) {
+	if step == stepPropose {
+		return checkProposalOnlyDifferByTimestamp(lastSignBytes, newSignBytes)
+	} else if step == stepPrevote || step == stepPrecommit {
+		return checkVoteOnlyDifferByTimestamp(lastSignBytes, newSignBytes)
 	}
 
 	return time.Time{}, false
