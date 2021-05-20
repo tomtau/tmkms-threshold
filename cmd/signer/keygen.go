@@ -38,7 +38,7 @@ func keygen(config internalSigner.CoConfig, logger tmlog.Logger) {
 		)
 		return
 	}
-	err = publisher.Connect("tcp://localhost:6000")
+	err = publisher.Connect(config.KeygenProxyPub)
 	defer publisher.Close()
 	if err != nil {
 		logger.Error(
@@ -58,7 +58,7 @@ func keygen(config internalSigner.CoConfig, logger tmlog.Logger) {
 		)
 		return
 	}
-	err = subscriber.Connect("tcp://localhost:6001")
+	err = subscriber.Connect(config.KeygenProxySub)
 	if err != nil {
 		logger.Error(
 			"Tendermint Validator",
