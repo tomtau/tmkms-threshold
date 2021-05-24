@@ -5,6 +5,8 @@ package signer
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -51,6 +53,19 @@ func (hrsKey *HRSKey) Less(other HRSKey) bool {
 	return false
 }
 
+type SortedPartyIds struct {
+	Ids string
+}
+
+func getSortedPartyIds(ids []byte) SortedPartyIds {
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+	return SortedPartyIds{
+		Ids: fmt.Sprintf("%v", ids),
+	}
+}
+
 type HRSMeta struct {
 	state            *state.State
 	output           *sign.Output
@@ -71,9 +86,16 @@ type LocalCosigner struct {
 	// signing is thread safe
 	lastSignStateMutex sync.Mutex
 
-	sessions map[HRSKey]HRSMeta
+	sessions map[HRSKey]map[SortedPartyIds]HRSMeta
 	timeout  time.Duration
 	chainId  string
+}
+
+func getSession(m map[SortedPartyIds]HRSMeta) *HRSMeta {
+	for _, v := range m {
+		return &v
+	}
+	return nil
 }
 
 func NewLocalCosigner(cfg CoConfig) (*LocalCosigner, error) {
@@ -89,7 +111,7 @@ func NewLocalCosigner(cfg CoConfig) (*LocalCosigner, error) {
 		kgOutput:           kgOutput,
 		lastSignState:      &lastSignState,
 		lastSignStateMutex: sync.Mutex{},
-		sessions:           make(map[HRSKey]HRSMeta),
+		sessions:           make(map[HRSKey]map[SortedPartyIds]HRSMeta),
 		timeout:            time.Duration(cfg.SessionTimeoutSec * int(time.Second)),
 		chainId:            cfg.ChainID,
 	}
@@ -141,11 +163,17 @@ func (cosigner *LocalCosigner) StartSession(req CosignerStartSessionRequest) (Co
 		Round:  round,
 		Step:   step,
 	}
-	msession, ok := cosigner.sessions[hrsKey]
-	if ok && !msession.state.IsFinished() && msession.expirationTime.Unix() > time.Now().Unix() {
-		return res, errors.New("already being signed on")
-	}
+	// FIXME: verify party IDs length etc.
+	partyKey := getSortedPartyIds(req.PartyIDs)
+	msessions, ok := cosigner.sessions[hrsKey]
 	if ok {
+		msession, ok2 := msessions[partyKey]
+		if ok2 && !msession.state.IsFinished() && msession.expirationTime.Unix() > time.Now().Unix() {
+			return res, errors.New("already being signed on")
+		}
+		if !ok2 {
+			msession = *getSession(msessions)
+		}
 		if _, almostsame := CheckOnlyDifferByTimestamp(step, msession.currentSignBytes, req.SignBytes); !almostsame {
 			return res, errors.New("mismatched data")
 		}
@@ -160,15 +188,22 @@ func (cosigner *LocalCosigner) StartSession(req CosignerStartSessionRequest) (Co
 	if err != nil {
 		return res, err
 	}
-	cosigner.sessions[hrsKey] = HRSMeta{
+	if !ok {
+		msessions = make(map[SortedPartyIds]HRSMeta)
+	}
+	msessions[partyKey] = HRSMeta{
 		state:            state,
 		output:           output,
 		currentSignBytes: req.SignBytes,
 		expirationTime:   time.Now().Add(cosigner.timeout),
 	}
+	cosigner.sessions[hrsKey] = msessions
 	msgs1, err := helpers.PartyRoutine(nil, state)
 	if err != nil {
-		delete(cosigner.sessions, hrsKey)
+		delete(cosigner.sessions[hrsKey], partyKey)
+		if len(cosigner.sessions[hrsKey]) == 0 {
+			delete(cosigner.sessions, hrsKey)
+		}
 		return res, err
 	}
 	res.Msg1Out = msgs1
@@ -209,8 +244,14 @@ func (cosigner *LocalCosigner) EndSession(req CosignerEndSessionRequest) (Cosign
 		Round:  round,
 		Step:   step,
 	}
-	session, ok := cosigner.sessions[hrsKey]
+	sessions, ok := cosigner.sessions[hrsKey]
 	if !ok {
+		return res, errors.New("invalid session")
+	}
+	// FIXME: verify party IDs length etc.
+	partyKey := getSortedPartyIds(req.PartyIDs)
+	session, ok2 := sessions[partyKey]
+	if !ok2 {
 		return res, errors.New("invalid session")
 	}
 
@@ -220,27 +261,42 @@ func (cosigner *LocalCosigner) EndSession(req CosignerEndSessionRequest) (Cosign
 
 	msgs2, err := helpers.PartyRoutine(req.Msg1Out, session.state)
 	if err != nil {
-		delete(cosigner.sessions, hrsKey)
+		delete(cosigner.sessions[hrsKey], partyKey)
+		if len(cosigner.sessions[hrsKey]) == 0 {
+			delete(cosigner.sessions, hrsKey)
+		}
 		return res, err
 	}
 	res.Msg2Out = msgs2
 	return res, nil
 }
 
-func (cosigner *LocalCosigner) FinalSign(hrsKey HRSKey, msg2out [][]byte) ([]byte, error) {
+func (cosigner *LocalCosigner) FinalSign(hrsKey HRSKey, partyIds []byte, msg2out [][]byte) ([]byte, error) {
 	cosigner.lastSignStateMutex.Lock()
 	defer cosigner.lastSignStateMutex.Unlock()
-	session, ok := cosigner.sessions[hrsKey]
+	sessions, ok := cosigner.sessions[hrsKey]
 	if !ok {
 		return nil, errors.New("invalid session")
 	}
+	partyKey := getSortedPartyIds(partyIds)
+	session, ok2 := sessions[partyKey]
+	if !ok2 {
+		return nil, errors.New("invalid session")
+	}
+
 	_, err := helpers.PartyRoutine(msg2out, session.state)
 	if err != nil {
-		delete(cosigner.sessions, hrsKey)
+		delete(cosigner.sessions[hrsKey], partyKey)
+		if len(cosigner.sessions[hrsKey]) == 0 {
+			delete(cosigner.sessions, hrsKey)
+		}
 		return nil, err
 	}
 	if err = session.state.WaitForError(); err != nil {
-		delete(cosigner.sessions, hrsKey)
+		delete(cosigner.sessions[hrsKey], partyKey)
+		if len(cosigner.sessions[hrsKey]) == 0 {
+			delete(cosigner.sessions, hrsKey)
+		}
 		return nil, err
 	}
 

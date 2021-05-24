@@ -108,6 +108,7 @@ func (pv *ThresholdValidator) signBlock(block *Block) ([]byte, time.Time, error)
 	msgsOut1 = append(msgsOut1, otherResp.Msg1Out...)
 	endReq := CosignerEndSessionRequest{}
 	endReq.ID = pv.peers.LocalID
+	endReq.PartyIDs = startReq.PartyIDs
 	endReq.SignBytes = block.SignBytes
 	endReq.Msg1Out = msgsOut1
 	resp2, err := pv.cosigner.EndSession(endReq)
@@ -132,7 +133,7 @@ func (pv *ThresholdValidator) signBlock(block *Block) ([]byte, time.Time, error)
 		Round:  block.Round,
 		Step:   block.Step,
 	}
-	sig, err := pv.cosigner.FinalSign(hrsKey, msgsOut2)
+	sig, err := pv.cosigner.FinalSign(hrsKey, endReq.PartyIDs, msgsOut2)
 	if err != nil {
 		return nil, stamp, err
 	}

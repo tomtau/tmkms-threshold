@@ -139,11 +139,13 @@ func (cosigners *RemoteCosigners) EndSession(req CosignerEndSessionRequest) (Cos
 	msgsOut2 := make([][]byte, 0, n)
 	res := CosignerEndSessionResponse{}
 
-	to_send := make([][]byte, 2, n)
+	to_send := make([][]byte, 3, n)
 	to_send[0] = []byte("xx")
 	to_send[0][0] = 1
 	to_send[0][1] = req.ID
 	to_send[1] = req.SignBytes
+	to_send[2] = req.PartyIDs
+
 	to_send = append(to_send, req.Msg1Out...)
 	for client := range cosigners.SessionClients {
 		_, err := client.SendMessage(to_send)

@@ -14,6 +14,7 @@ type CosignerStartSessionResponse struct {
 type CosignerEndSessionRequest struct {
 	ID        byte
 	SignBytes []byte
+	PartyIDs  []byte
 	Msg1Out   [][]byte
 }
 
@@ -70,7 +71,8 @@ func MsgToRequest(msg [][]byte) CosignerRequest {
 	case 1:
 		req := CosignerEndSessionRequest{}
 		req.SignBytes = msg[1]
-		req.Msg1Out = msg[2:]
+		req.PartyIDs = msg[2]
+		req.Msg1Out = msg[3:]
 		req.ID = partyId
 		return req
 	case 2:
