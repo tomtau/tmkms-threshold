@@ -69,6 +69,9 @@ func MsgToRequest(msg [][]byte) CosignerRequest {
 		req.ID = partyId
 		return req
 	case 1:
+		if len(msg) < 3+len(msg[2]) {
+			return nil
+		}
 		req := CosignerEndSessionRequest{}
 		req.SignBytes = msg[1]
 		req.PartyIDs = msg[2]
